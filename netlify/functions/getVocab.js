@@ -18,37 +18,44 @@ exports.handler = async function(event, context) {
             page_size: 100
         });
 
-        // データの形式を整形（文字列の正規化を追加）
+        // テキストブロックを結合する関数
+        function concatenateTextBlocks(property) {
+            if (!property) return '';
+            
+            if (property.title) {
+                // タイトルプロパティの場合
+                return property.title.map(block => block.plain_text || '').join('');
+            } else if (property.rich_text) {
+                // リッチテキストプロパティの場合
+                return property.rich_text.map(block => block.plain_text || '').join('');
+            }
+            return '';
+        }
+
+        // データの形式を整形
         const formattedData = response.results
             .map(page => {
                 try {
-                    // 問題文と補足の取得と正規化
-                    const contentProp = page.properties['内容']?.title[0]?.plain_text || '';
-                    const supplementProp = page.properties['補足']?.rich_text[0]?.plain_text || '';
+                    // すべてのテキストブロックを結合して取得
+                    const content = concatenateTextBlocks(page.properties['内容']);
+                    const supplement = concatenateTextBlocks(page.properties['補足']);
 
-                    // 文字列の正規化処理
-                    const content = contentProp.trim().replace(/^\[|\]$/g, '');
-                    const supplement = supplementProp.trim().replace(/^\[|\]$/g, '');
-
-                    // 両方のプロパティが存在する場合のみ有効なデータとして扱う
+                    // データの検証
                     if (!content || !supplement) {
-                        console.log('Skipping entry due to missing content or supplement:', {
-                            id: page.id,
-                            hasContent: !!content,
-                            hasSupplement: !!supplement
-                        });
+                        console.log('Missing content or supplement for page:', page.id);
                         return null;
                     }
 
                     return {
                         id: page.id,
                         url: page.url,
-                        content: content,
-                        supplement: supplement,
+                        content: content.trim(),
+                        supplement: supplement.trim(),
                         tags: page.properties['タグ']?.multi_select?.map(tag => tag.name) || []
                     };
                 } catch (error) {
                     console.error('Error formatting page:', page.id, error);
+                    console.error('Page properties:', JSON.stringify(page.properties, null, 2));
                     return null;
                 }
             })
