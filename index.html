@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>英単語クイズ</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background-color: #f7f7f7;
+        }
+        .quiz-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .quiz-display {
+            min-height: 100px;
+            font-size: 1.5rem;
+            margin: 1rem 0;
+            padding: 1rem;
+            border: 1px solid #e1e1e1;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        button {
+            background-color: #2eaadc;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #2591ba;
+        }
+    </style>
+</head>
+<body>
+    <div class="quiz-container">
+        <h1>英単語クイズ</h1>
+        <div id="quizDisplay" class="quiz-display">
+            スタートボタンを押してください
+        </div>
+        <button id="quizButton" onclick="handleQuiz()">スタート</button>
+    </div>
+
+    <script>
+    let currentWord = null;
+    let isShowingJapanese = true;
+    let vocabularyData = [];
+
+    async function fetchVocabData() {
+        try {
+            const response = await fetch('/.netlify/functions/getVocab');
+            const data = await response.json();
+            return data.results || [];
+        } catch (error) {
+            console.error('Error:', error);
+            return [];
+        }
+    }
+
+    function getRandomWord(words) {
+        return words[Math.floor(Math.random() * words.length)];
+    }
+
+    async function handleQuiz() {
+        const display = document.getElementById('quizDisplay');
+        const button = document.getElementById('quizButton');
+
+        try {
+            if (vocabularyData.length === 0) {
+                display.textContent = 'データを読み込み中...';
+                button.disabled = true;
+                vocabularyData = await fetchVocabData();
+                if (vocabularyData.length === 0) {
+                    display.textContent = 'データが見つかりません';
+                    button.disabled = false;
+                    return;
+                }
+            }
+
+            if (!currentWord) {
+                currentWord = getRandomWord(vocabularyData);
+                display.textContent = currentWord.japanese; // 日本語訳を表示
+                button.textContent = '答えを見る';
+                isShowingJapanese = true;
+            } else if (isShowingJapanese) {
+                display.textContent = currentWord.english; // 英語を表示
+                button.textContent = '次の問題へ';
+                isShowingJapanese = false;
+            } else {
+                currentWord = null;
+                handleQuiz();
+            }
+            
+            button.disabled = false;
+        } catch (error) {
+            console.error('Error:', error);
+            display.textContent = 'エラーが発生しました';
+            button.disabled = false;
+        }
+    }
+</script>
