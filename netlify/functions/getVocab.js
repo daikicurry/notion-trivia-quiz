@@ -17,22 +17,30 @@ exports.handler = async function(event, context) {
             page_size: 100
         });
 
-        // HTMLタグをエスケープせずに保持する関数
-        function preserveTextWithTags(property) {
+        // HTMLタグをエスケープする関数
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;')
+                .replace(/\n/g, ' '); // 改行を空白に変換
+        }
+
+        // テキストを処理する関数
+        function processText(property) {
             if (!property) return '';
             
             if (property.title) {
-                // タイトルプロパティの場合
                 return property.title
-                    .map(block => block.plain_text)
-                    .join('')
-                    .replace(/\n/g, ' '); // 改行を空白に変換
+                    .map(block => escapeHtml(block.plain_text))
+                    .join('');
             } else if (property.rich_text) {
-                // リッチテキストプロパティの場合
                 return property.rich_text
-                    .map(block => block.plain_text)
-                    .join('')
-                    .replace(/\n/g, ' '); // 改行を空白に変換
+                    .map(block => escapeHtml(block.plain_text))
+                    .join('');
             }
             return '';
         }
@@ -41,10 +49,9 @@ exports.handler = async function(event, context) {
         const formattedData = response.results
             .map(page => {
                 try {
-                    const content = preserveTextWithTags(page.properties['内容']);
-                    const supplement = preserveTextWithTags(page.properties['補足']);
+                    const content = processText(page.properties['内容']);
+                    const supplement = processText(page.properties['補足']);
 
-                    // データの検証
                     if (!content || !supplement) {
                         console.log('Missing content or supplement for page:', page.id);
                         return null;
