@@ -8,84 +8,67 @@ exports.handler = async function(event, context) {
     };
 
     try {
-        console.log('Handler started');
-        console.log('NOTION_API_TOKEN exists:', !!process.env.NOTION_API_TOKEN);
-        console.log('DATABASE_ID:', process.env.DATABASE_ID);
-
         const notion = new Client({
             auth: process.env.NOTION_API_TOKEN
         });
 
-        // まず、フィルターなしで全データを取得
-        console.log('Querying database...');
+        // 基本的なデータ取得（フィルターなし）
         const response = await notion.databases.query({
-            database_id: process.env.DATABASE_ID
+            database_id: process.env.DATABASE_ID,
+            page_size: 100  // 取得するページ数を増やす
         });
 
         console.log('Total results:', response.results.length);
-        
-        // 最初のレコードの構造を確認
-        if (response.results.length > 0) {
-            const firstPage = response.results[0];
-            console.log('First page ID:', firstPage.id);
-            console.log('First page URL:', firstPage.url);
-            console.log('Properties available:', Object.keys(firstPage.properties));
-            console.log('Aa名前 property:', firstPage.properties['Aa名前']);
-            console.log('補足 property:', firstPage.properties['補足']);
-            console.log('タグ property:', firstPage.properties['タグ']);
-        }
 
-        // シンプルにデータを整形
+        // データの形式を整形
         const formattedData = response.results
             .map(page => {
-                try {
-                    return {
-                        id: page.id,
-                        url: page.url,
-                        content: page.properties['Aa名前']?.title[0]?.plain_text || '',
-                        supplement: page.properties['補足']?.rich_text[0]?.plain_text || '',
-                        tags: page.properties['タグ']?.multi_select?.map(tag => tag.name) || []
-                    };
-                } catch (error) {
-                    console.error('Error formatting page:', page.id, error);
-                    return null;
-                }
+                const content = page.properties['Aa名前']?.title[0]?.plain_text;
+                const supplement = page.properties['補足']?.rich_text[0]?.plain_text;
+                const tags = page.properties['タグ']?.multi_select?.map(tag => tag.name) || [];
+
+                return {
+                    id: page.id,
+                    url: page.url,
+                    content: content,
+                    supplement: supplement,
+                    tags: tags
+                };
             })
-            .filter(item => item && item.content && item.supplement);
+            .filter(item => item.content && item.supplement);
 
-        console.log('Formatted data count:', formattedData.length);
-        if (formattedData.length > 0) {
-            console.log('Sample formatted data:', formattedData[0]);
-        }
-
-        // データベース情報を取得してタグ一覧を取得
-        console.log('Retrieving database info...');
+        // データベース情報からタグ一覧を取得
         const dbInfo = await notion.databases.retrieve({
             database_id: process.env.DATABASE_ID
         });
 
         const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
-        console.log('Available tags:', availableTags);
+
+        // レスポンスにデバッグ情報を含める
+        const responseBody = {
+            results: formattedData,
+            availableTags: availableTags,
+            debug: {
+                totalResults: response.results.length,
+                formattedResults: formattedData.length,
+                sampleTags: formattedData.length > 0 ? formattedData[0].tags : []
+            }
+        };
 
         return {
             statusCode: 200,
             headers,
-            body: JSON.stringify({ 
-                results: formattedData,
-                availableTags: availableTags
-            })
+            body: JSON.stringify(responseBody)
         };
 
     } catch (error) {
         console.error("Error details:", error);
-        console.error("Error stack:", error.stack);
         return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
                 error: error.message,
-                details: error.toString(),
-                stack: error.stack
+                details: error.toString()
             })
         };
     }
