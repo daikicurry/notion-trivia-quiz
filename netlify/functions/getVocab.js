@@ -12,13 +12,50 @@ exports.handler = async function(event, context) {
             auth: process.env.NOTION_API_TOKEN
         });
 
-        // 基本的なデータ取得（フィルターなし）
+        // クエリパラメータからフィルター条件を取得
+        const { includeTags, excludeTags } = event.queryStringParameters || {};
+        let filter = undefined;
+
+        if (includeTags || excludeTags) {
+            const conditions = [];
+            
+            if (includeTags) {
+                const tags = includeTags.split(',');
+                conditions.push({
+                    or: tags.map(tag => ({
+                        property: 'タグ',
+                        multi_select: {
+                            contains: tag.trim()
+                        }
+                    }))
+                });
+            }
+
+            if (excludeTags) {
+                const tags = excludeTags.split(',');
+                tags.forEach(tag => {
+                    conditions.push({
+                        property: 'タグ',
+                        multi_select: {
+                            does_not_contain: tag.trim()
+                        }
+                    });
+                });
+            }
+
+            if (conditions.length > 0) {
+                filter = {
+                    and: conditions
+                };
+            }
+        }
+
+        // データベースからデータを取得
         const response = await notion.databases.query({
             database_id: process.env.DATABASE_ID,
-            page_size: 100  // 取得するページ数を増やす
+            filter: filter,
+            page_size: 100
         });
-
-        console.log('Total results:', response.results.length);
 
         // データの形式を整形
         const formattedData = response.results
@@ -44,21 +81,19 @@ exports.handler = async function(event, context) {
 
         const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
 
-        // レスポンスにデバッグ情報を含める
-        const responseBody = {
-            results: formattedData,
-            availableTags: availableTags,
-            debug: {
-                totalResults: response.results.length,
-                formattedResults: formattedData.length,
-                sampleTags: formattedData.length > 0 ? formattedData[0].tags : []
-            }
-        };
-
+        // レスポンスを返す
         return {
             statusCode: 200,
             headers,
-            body: JSON.stringify(responseBody)
+            body: JSON.stringify({
+                results: formattedData,
+                availableTags: availableTags,
+                debug: {
+                    totalResults: response.results.length,
+                    formattedResults: formattedData.length,
+                    filter: filter
+                }
+            })
         };
 
     } catch (error) {
