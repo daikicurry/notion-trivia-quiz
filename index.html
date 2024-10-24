@@ -44,6 +44,16 @@
             gap: 8px;
             margin: 4px 0;
         }
+        .all-data-button {
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #198754;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
         .button-container {
             margin-top: 20px;
             display: flex;
@@ -62,6 +72,11 @@
             background-color: #6c757d;
             cursor: not-allowed;
         }
+        .selected-tags {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -69,6 +84,9 @@
         <h1>雑学クイズ</h1>
         
         <div class="tag-filter">
+            <button onclick="fetchAllData()" class="all-data-button">
+                データベース全体から出題
+            </button>
             <div class="tag-sections">
                 <div class="tag-section">
                     <h3>含めるタグ</h3>
@@ -78,6 +96,10 @@
                     <h3>除外するタグ</h3>
                     <div id="excludeTagList" class="tag-list"></div>
                 </div>
+            </div>
+            <div class="selected-tags">
+                <div id="selectedIncludeTags"></div>
+                <div id="selectedExcludeTags"></div>
             </div>
         </div>
 
@@ -99,15 +121,18 @@
         let supplementShown = false;
         const includedTags = new Set();
         const excludedTags = new Set();
+        let isUsingAllData = false;
 
-        async function fetchQuizData() {
+        async function fetchQuizData(useAllData = false) {
             try {
                 const queryParams = new URLSearchParams();
-                if (includedTags.size > 0) {
-                    queryParams.set('includeTags', Array.from(includedTags).join(','));
-                }
-                if (excludedTags.size > 0) {
-                    queryParams.set('excludeTags', Array.from(excludedTags).join(','));
+                if (!useAllData) {
+                    if (includedTags.size > 0) {
+                        queryParams.set('includeTags', Array.from(includedTags).join(','));
+                    }
+                    if (excludedTags.size > 0) {
+                        queryParams.set('excludeTags', Array.from(excludedTags).join(','));
+                    }
                 }
 
                 const response = await fetch(`/.netlify/functions/getVocab?${queryParams.toString()}`);
@@ -124,10 +149,22 @@
                     initializeTagLists(data.availableTags);
                 }
 
+                updateSelectedTagsDisplay();
                 return data.results;
             } catch (error) {
                 console.error('Error fetching quiz data:', error);
                 return [];
+            }
+        }
+
+        async function fetchAllData() {
+            isUsingAllData = true;
+            includedTags.clear();
+            excludedTags.clear();
+            updateCheckboxes();
+            const data = await fetchQuizData(true);
+            if (data.length > 0) {
+                startQuiz();
             }
         }
 
@@ -140,7 +177,7 @@
                 const includeLabel = document.createElement('label');
                 includeLabel.className = 'tag-checkbox';
                 includeLabel.innerHTML = `
-                    <input type="checkbox" onchange="handleTagChange('${tag}', this.checked, false)">
+                    <input type="checkbox" data-tag="${tag}" onchange="handleTagChange('${tag}', this.checked, false)">
                     <span>${tag}</span>
                 `;
                 includeList.appendChild(includeLabel);
@@ -149,14 +186,23 @@
                 const excludeLabel = document.createElement('label');
                 excludeLabel.className = 'tag-checkbox';
                 excludeLabel.innerHTML = `
-                    <input type="checkbox" onchange="handleTagChange('${tag}', this.checked, true)">
+                    <input type="checkbox" data-tag="${tag}" onchange="handleTagChange('${tag}', this.checked, true)">
                     <span>${tag}</span>
                 `;
                 excludeList.appendChild(excludeLabel);
             });
         }
 
+        function updateCheckboxes() {
+            document.querySelectorAll('.tag-checkbox input').forEach(checkbox => {
+                const tag = checkbox.dataset.tag;
+                const isExclude = checkbox.parentElement.parentElement.id === 'excludeTagList';
+                checkbox.checked = isExclude ? excludedTags.has(tag) : includedTags.has(tag);
+            });
+        }
+
         function handleTagChange(tag, checked, isExclude) {
+            isUsingAllData = false;
             const targetSet = isExclude ? excludedTags : includedTags;
             const oppositeSet = isExclude ? includedTags : excludedTags;
             
@@ -164,19 +210,26 @@
                 targetSet.add(tag);
                 oppositeSet.delete(tag);
                 // 反対側のチェックボックスの状態を更新
-                const oppositeCheckbox = document.querySelector(
-                    `#${isExclude ? 'includeTagList' : 'excludeTagList'} input[type="checkbox"]`
-                );
+                const oppositeSelector = `#${isExclude ? 'includeTagList' : 'excludeTagList'} input[data-tag="${tag}"]`;
+                const oppositeCheckbox = document.querySelector(oppositeSelector);
                 if (oppositeCheckbox) oppositeCheckbox.checked = false;
             } else {
                 targetSet.delete(tag);
             }
 
+            updateSelectedTagsDisplay();
             fetchQuizData();
         }
 
+        function updateSelectedTagsDisplay() {
+            document.getElementById('selectedIncludeTags').textContent = 
+                `含めるタグ: ${includedTags.size > 0 ? Array.from(includedTags).join(', ') : 'なし'}`;
+            document.getElementById('selectedExcludeTags').textContent = 
+                `除外するタグ: ${excludedTags.size > 0 ? Array.from(excludedTags).join(', ') : 'なし'}`;
+        }
+
         async function startQuiz() {
-            const data = await fetchQuizData();
+            const data = await fetchQuizData(isUsingAllData);
             if (data.length === 0) {
                 document.getElementById('quizDisplay').textContent = '条件に一致するクイズデータがありません';
                 updateButtons('no-data');
@@ -228,7 +281,7 @@
         document.getElementById('nextButton').onclick = startQuiz;
 
         // 初期データの読み込み
-        fetchQuizData();
+        fetchQuizData(true);
     </script>
 </body>
 </html>
