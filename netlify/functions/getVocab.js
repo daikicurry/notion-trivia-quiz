@@ -12,22 +12,27 @@ exports.handler = async function(event, context) {
             auth: process.env.NOTION_API_TOKEN
         });
 
-        // データベースからデータを取得
         const response = await notion.databases.query({
             database_id: process.env.DATABASE_ID,
             page_size: 100
         });
 
-        // テキストブロックを結合する関数
-        function concatenateTextBlocks(property) {
+        // HTMLタグをエスケープせずに保持する関数
+        function preserveTextWithTags(property) {
             if (!property) return '';
             
             if (property.title) {
                 // タイトルプロパティの場合
-                return property.title.map(block => block.plain_text || '').join('');
+                return property.title
+                    .map(block => block.plain_text)
+                    .join('')
+                    .replace(/\n/g, ' '); // 改行を空白に変換
             } else if (property.rich_text) {
                 // リッチテキストプロパティの場合
-                return property.rich_text.map(block => block.plain_text || '').join('');
+                return property.rich_text
+                    .map(block => block.plain_text)
+                    .join('')
+                    .replace(/\n/g, ' '); // 改行を空白に変換
             }
             return '';
         }
@@ -36,9 +41,8 @@ exports.handler = async function(event, context) {
         const formattedData = response.results
             .map(page => {
                 try {
-                    // すべてのテキストブロックを結合して取得
-                    const content = concatenateTextBlocks(page.properties['内容']);
-                    const supplement = concatenateTextBlocks(page.properties['補足']);
+                    const content = preserveTextWithTags(page.properties['内容']);
+                    const supplement = preserveTextWithTags(page.properties['補足']);
 
                     // データの検証
                     if (!content || !supplement) {
@@ -49,13 +53,12 @@ exports.handler = async function(event, context) {
                     return {
                         id: page.id,
                         url: page.url,
-                        content: content.trim(),
-                        supplement: supplement.trim(),
+                        content: content,
+                        supplement: supplement,
                         tags: page.properties['タグ']?.multi_select?.map(tag => tag.name) || []
                     };
                 } catch (error) {
                     console.error('Error formatting page:', page.id, error);
-                    console.error('Page properties:', JSON.stringify(page.properties, null, 2));
                     return null;
                 }
             })
@@ -68,19 +71,12 @@ exports.handler = async function(event, context) {
 
         const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
 
-        // デバッグ情報を含めて返す
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 results: formattedData,
-                availableTags: availableTags,
-                debug: {
-                    totalResults: response.results.length,
-                    formattedResults: formattedData.length,
-                    sampleContent: formattedData[0]?.content,
-                    sampleSupplement: formattedData[0]?.supplement
-                }
+                availableTags: availableTags
             })
         };
 
