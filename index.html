@@ -5,15 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>雑学クイズ</title>
     <style>
-        /* 既存のスタイル */
+        .quiz-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .quiz-display {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            min-height: 100px;
+            background-color: #f8f9fa;
+        }
+        .tag-filter {
+            margin: 20px 0;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            background-color: #fff;
+            overflow: hidden;
+        }
         .all-data-button {
             width: 100%;
-            margin: 10px 0;
             padding: 12px;
             background-color: #198754;
             color: white;
             border: none;
-            border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
             transition: background-color 0.3s;
@@ -26,50 +43,96 @@
         }
         .tag-toggle-button {
             width: 100%;
-            margin: 10px 0;
-            padding: 10px;
+            padding: 12px;
             background-color: #6c757d;
             color: white;
             border: none;
-            border-radius: 5px;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-size: 16px;
+        }
+        .tag-toggle-button:hover {
+            background-color: #5c636a;
         }
         .tag-sections {
             display: none;
+            padding: 15px;
         }
         .tag-sections.show {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            margin-top: 15px;
         }
-        /* その他の既存のスタイル */
+        .tag-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 8px;
+        }
+        .tag-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .tag-checkbox:hover {
+            background-color: #f8f9fa;
+        }
+        .button-container {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .control-button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #0d6efd;
+            color: white;
+            cursor: pointer;
+        }
+        .control-button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .selected-tags {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
     <div class="quiz-container">
         <h1>雑学クイズ</h1>
         
-        <button id="allDataButton" class="all-data-button" onclick="handleAllDataClick()">
-            データベース全体から出題
-        </button>
+        <div class="tag-filter">
+            <button id="allDataButton" class="all-data-button" onclick="handleAllDataClick()">
+                データベース全体から出題
+            </button>
 
-        <button class="tag-toggle-button" onclick="toggleTagSections()">
-            <span>タグでフィルター</span>
-            <span id="tagToggleIcon">▼</span>
-        </button>
+            <button class="tag-toggle-button" onclick="toggleTagSections()">
+                <span>タグでフィルター</span>
+                <span id="tagToggleIcon">▼</span>
+            </button>
 
-        <div id="tagSections" class="tag-sections">
-            <div class="tag-section">
-                <h3>含めるタグ</h3>
-                <div id="includeTagList" class="tag-list"></div>
-            </div>
-            <div class="tag-section">
-                <h3>除外するタグ</h3>
-                <div id="excludeTagList" class="tag-list"></div>
+            <div id="tagSections" class="tag-sections">
+                <div class="tag-section">
+                    <h3>含めるタグ</h3>
+                    <div id="includeTagList" class="tag-list"></div>
+                </div>
+                <div class="tag-section">
+                    <h3>除外するタグ</h3>
+                    <div id="excludeTagList" class="tag-list"></div>
+                </div>
+                <div class="selected-tags">
+                    <div id="selectedTags"></div>
+                </div>
             </div>
         </div>
 
@@ -93,6 +156,71 @@
         const excludedTags = new Set();
         let isUsingAllData = false;
 
+        async function fetchQuizData(useAllData = false) {
+            try {
+                const queryParams = new URLSearchParams();
+                if (!useAllData) {
+                    if (includedTags.size > 0) {
+                        queryParams.set('includeTags', Array.from(includedTags).join(','));
+                    }
+                    if (excludedTags.size > 0) {
+                        queryParams.set('excludeTags', Array.from(excludedTags).join(','));
+                    }
+                }
+                queryParams.set('useAllData', useAllData.toString());
+
+                const response = await fetch(`/.netlify/functions/getVocab?${queryParams.toString()}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                console.log('Fetched data:', data);
+                quizData = data.results;
+                
+                // 初回のみタグ一覧を初期化
+                if (!document.querySelector('#includeTagList').children.length) {
+                    initializeTagLists(data.availableTags);
+                }
+
+                return data.results;
+            } catch (error) {
+                console.error('Error fetching quiz data:', error);
+                return [];
+            }
+        }
+
+        function initializeTagLists(tags) {
+            if (!tags || tags.length === 0) return;
+            
+            const includeList = document.getElementById('includeTagList');
+            const excludeList = document.getElementById('excludeTagList');
+            
+            includeList.innerHTML = '';
+            excludeList.innerHTML = '';
+            
+            tags.forEach(tag => {
+                // 含めるタグのチェックボックス
+                const includeLabel = document.createElement('label');
+                includeLabel.className = 'tag-checkbox';
+                includeLabel.innerHTML = `
+                    <input type="checkbox" data-tag="${tag}" onchange="handleTagChange('${tag}', this.checked, false)">
+                    <span>${tag}</span>
+                `;
+                includeList.appendChild(includeLabel);
+
+                // 除外するタグのチェックボックス
+                const excludeLabel = document.createElement('label');
+                excludeLabel.className = 'tag-checkbox';
+                excludeLabel.innerHTML = `
+                    <input type="checkbox" data-tag="${tag}" onchange="handleTagChange('${tag}', this.checked, true)">
+                    <span>${tag}</span>
+                `;
+                excludeList.appendChild(excludeLabel);
+            });
+        }
+
         function toggleTagSections() {
             const sections = document.getElementById('tagSections');
             const icon = document.getElementById('tagToggleIcon');
@@ -107,14 +235,109 @@
             includedTags.clear();
             excludedTags.clear();
             updateCheckboxes();
-            await fetchQuizData(true);
-            startQuiz();
+            await startQuiz();
         }
 
-        // 他のJavaScript関数は変更なし
+        function handleTagChange(tag, checked, isExclude) {
+            isUsingAllData = false;
+            document.getElementById('allDataButton').classList.remove('active');
+            
+            const targetSet = isExclude ? excludedTags : includedTags;
+            const oppositeSet = isExclude ? includedTags : excludedTags;
+            
+            if (checked) {
+                targetSet.add(tag);
+                oppositeSet.delete(tag);
+                // 反対側のチェックボックスの更新
+                const oppositeSelector = `#${isExclude ? 'includeTagList' : 'excludeTagList'} input[data-tag="${tag}"]`;
+                const oppositeCheckbox = document.querySelector(oppositeSelector);
+                if (oppositeCheckbox) oppositeCheckbox.checked = false;
+            } else {
+                targetSet.delete(tag);
+            }
 
-        // 初期化時にタグセクションを非表示に
-        document.addEventListener('DOMContentLoaded', () => {
+            updateSelectedTags();
+            fetchQuizData(false).then(() => {
+                updateButtons('ready');
+            });
+        }
+
+        function updateCheckboxes() {
+            document.querySelectorAll('.tag-checkbox input').forEach(checkbox => {
+                const tag = checkbox.dataset.tag;
+                const isExclude = checkbox.parentElement.parentElement.id === 'excludeTagList';
+                checkbox.checked = isExclude ? excludedTags.has(tag) : includedTags.has(tag);
+            });
+            updateSelectedTags();
+        }
+
+        function updateSelectedTags() {
+            const includeText = includedTags.size > 0 ? 
+                `含めるタグ: ${Array.from(includedTags).join(', ')}` : 
+                '含めるタグ: なし';
+            const excludeText = excludedTags.size > 0 ? 
+                `除外するタグ: ${Array.from(excludedTags).join(', ')}` : 
+                '除外するタグ: なし';
+            
+            document.getElementById('selectedTags').innerHTML = 
+                `<div>${includeText}</div><div>${excludeText}</div>`;
+        }
+
+        async function startQuiz() {
+            const data = await fetchQuizData(isUsingAllData);
+            if (data.length === 0) {
+                document.getElementById('quizDisplay').textContent = '条件に一致するクイズデータがありません';
+                updateButtons('no-data');
+                return;
+            }
+
+            currentQuiz = getRandomQuiz();
+            if (currentQuiz) {
+                document.getElementById('quizDisplay').textContent = currentQuiz.content;
+                supplementShown = false;
+                updateButtons('quiz');
+            }
+        }
+
+        function getRandomQuiz() {
+            if (quizData.length === 0) return null;
+            const randomIndex = Math.floor(Math.random() * quizData.length);
+            return quizData[randomIndex];
+        }
+
+        function updateButtons(state) {
+            document.getElementById('startButton').disabled = state === 'quiz';
+            document.getElementById('showSupplementButton').disabled = state !== 'quiz' || supplementShown;
+            document.getElementById('showNotionButton').disabled = state !== 'quiz';
+            document.getElementById('nextButton').disabled = state !== 'quiz';
+        }
+
+        function showSupplement() {
+            if (currentQuiz) {
+                document.getElementById('quizDisplay').innerHTML = 
+                    `<div>${currentQuiz.content}</div>
+                     <hr>
+                     <div>${currentQuiz.supplement}</div>`;
+                supplementShown = true;
+                updateButtons('quiz');
+            }
+        }
+
+        function openInNotion() {
+            if (currentQuiz) {
+                window.open(currentQuiz.url, '_blank');
+            }
+        }
+
+        // イベントリスナーの設定
+        document.getElementById('startButton').onclick = startQuiz;
+        document.getElementById('showSupplementButton').onclick = showSupplement;
+        document.getElementById('showNotionButton').onclick = openInNotion;
+        document.getElementById('nextButton').onclick = startQuiz;
+
+        // 初期データの読み込みとUIの設定
+        document.addEventListener('DOMContentLoaded', async () => {
+            await fetchQuizData(true);
             document.getElementById('tagSections').classList.remove('show');
         });
     </script>
