@@ -7,33 +7,34 @@ exports.handler = async function(event, context) {
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
     };
 
-    if (event.httpMethod === "OPTIONS") {
-        return {
-            statusCode: 200,
-            headers,
-            body: ""
-        };
-    }
+    console.log('Function started');
+    console.log('Query parameters:', event.queryStringParameters);
 
     try {
         const notion = new Client({
             auth: process.env.NOTION_API_TOKEN
         });
 
+        console.log('Notion client initialized');
+
         // データベース情報を取得
+        console.log('Retrieving database info...');
         const dbInfo = await notion.databases.retrieve({
             database_id: process.env.DATABASE_ID
         });
+        console.log('Database info retrieved');
 
         // クエリパラメータの処理
-        const { includeTags, excludeTags } = event.queryStringParameters || {};
         let filter = undefined;
+        const { useAllData, includeTags, excludeTags } = event.queryStringParameters || {};
 
-        if (includeTags || excludeTags) {
+        // 全データ取得モードの場合はフィルターを適用しない
+        if (!useAllData && (includeTags || excludeTags)) {
             const conditions = [];
             
             if (includeTags) {
                 const tags = includeTags.split(',');
+                console.log('Include tags:', tags);
                 conditions.push({
                     or: tags.map(tag => ({
                         property: 'タグ',
@@ -46,6 +47,7 @@ exports.handler = async function(event, context) {
 
             if (excludeTags) {
                 const tags = excludeTags.split(',');
+                console.log('Exclude tags:', tags);
                 tags.forEach(tag => {
                     conditions.push({
                         property: 'タグ',
@@ -63,12 +65,16 @@ exports.handler = async function(event, context) {
             }
         }
 
+        console.log('Using filter:', JSON.stringify(filter, null, 2));
+
         // クイズデータの取得
+        console.log('Querying database...');
         const response = await notion.databases.query({
             database_id: process.env.DATABASE_ID,
             filter: filter,
             page_size: 100
         });
+        console.log('Raw results count:', response.results.length);
 
         // データの整形
         const formattedData = response.results
@@ -82,14 +88,16 @@ exports.handler = async function(event, context) {
                         tags: page.properties['タグ']?.multi_select?.map(tag => tag.name) || []
                     };
                 } catch (error) {
-                    console.error('Error formatting page:', error);
+                    console.error('Error formatting page:', page.id, error);
                     return null;
                 }
             })
             .filter(item => item && item.content && item.supplement);
 
-        // タグ一覧の取得
+        console.log('Formatted data count:', formattedData.length);
+
         const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
+        console.log('Available tags:', availableTags);
 
         return {
             statusCode: 200,
@@ -99,7 +107,8 @@ exports.handler = async function(event, context) {
                 availableTags: availableTags,
                 debug: {
                     totalResults: response.results.length,
-                    formattedResults: formattedData.length
+                    formattedResults: formattedData.length,
+                    usedFilter: filter
                 }
             })
         };
@@ -111,7 +120,8 @@ exports.handler = async function(event, context) {
             headers,
             body: JSON.stringify({
                 error: error.message,
-                details: error.toString()
+                details: error.toString(),
+                stack: error.stack
             })
         };
     }
