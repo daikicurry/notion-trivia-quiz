@@ -17,33 +17,62 @@
             border-radius: 5px;
             min-height: 100px;
         }
-        .tag-filter {
+        .tag-sections {
+            display: flex;
+            gap: 20px;
             margin: 20px 0;
         }
-        .tag-selection {
+        .tag-section {
+            flex: 1;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .tag-input {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .tag-input input {
+            flex: 1;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        .tag-input button {
+            padding: 5px 10px;
+        }
+        .selected-tags {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            margin: 10px 0;
+            gap: 5px;
+            min-height: 30px;
         }
-        .tag-chip {
-            padding: 5px 10px;
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 8px;
             background-color: #e0e0e0;
             border-radius: 15px;
-            cursor: pointer;
+            font-size: 14px;
         }
-        .tag-chip.selected {
+        .include-tag {
             background-color: #2196f3;
             color: white;
         }
-        .tag-chip.excluded {
+        .exclude-tag {
             background-color: #f44336;
             color: white;
+        }
+        .tag-remove {
+            cursor: pointer;
+            font-weight: bold;
         }
         .button-container {
             margin-top: 20px;
         }
-        button {
+        .control-button {
             margin: 5px;
             padding: 10px 20px;
             border: none;
@@ -52,7 +81,7 @@
             color: white;
             cursor: pointer;
         }
-        button:disabled {
+        .control-button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
@@ -62,21 +91,39 @@
     <div class="quiz-container">
         <h1>雑学クイズ</h1>
         
-        <div class="tag-filter">
-            <h3>タグフィルター</h3>
-            <p>クリック: 含める / Shift+クリック: 除外</p>
-            <div id="tagSelection" class="tag-selection"></div>
+        <div class="tag-sections">
+            <div class="tag-section">
+                <h3>含めるタグ</h3>
+                <div class="tag-input">
+                    <input type="text" id="includeTagInput" list="availableTags" placeholder="タグを入力">
+                    <button onclick="addIncludeTag()">追加</button>
+                </div>
+                <div id="includedTags" class="selected-tags"></div>
+            </div>
+            
+            <div class="tag-section">
+                <h3>除外するタグ</h3>
+                <div class="tag-input">
+                    <input type="text" id="excludeTagInput" list="availableTags" placeholder="タグを入力">
+                    <button onclick="addExcludeTag()">追加</button>
+                </div>
+                <div id="excludedTags" class="selected-tags"></div>
+            </div>
         </div>
+
+        <datalist id="availableTags">
+            <!-- タグの候補がここに動的に追加されます -->
+        </datalist>
 
         <div id="quizDisplay" class="quiz-display">
             スタートボタンを押してください
         </div>
 
         <div class="button-container">
-            <button id="startButton">スタート</button>
-            <button id="showSupplementButton" disabled>補足を表示</button>
-            <button id="showNotionButton" disabled>Notionで開く</button>
-            <button id="nextButton" disabled>次の問題</button>
+            <button id="startButton" class="control-button">スタート</button>
+            <button id="showSupplementButton" class="control-button" disabled>補足を表示</button>
+            <button id="showNotionButton" class="control-button" disabled>Notionで開く</button>
+            <button id="nextButton" class="control-button" disabled>次の問題</button>
         </div>
     </div>
 
@@ -84,76 +131,104 @@
         let quizData = [];
         let currentQuiz = null;
         let supplementShown = false;
+        let availableTags = new Set();
         const includedTags = new Set();
         const excludedTags = new Set();
 
         async function fetchQuizData() {
-            const queryParams = new URLSearchParams();
-            if (includedTags.size > 0) {
-                queryParams.set('includeTags', Array.from(includedTags).join(','));
-            }
-            if (excludedTags.size > 0) {
-                queryParams.set('excludeTags', Array.from(excludedTags).join(','));
-            }
-
             try {
+                const queryParams = new URLSearchParams();
+                if (includedTags.size > 0) {
+                    queryParams.set('includeTags', Array.from(includedTags).join(','));
+                }
+                if (excludedTags.size > 0) {
+                    queryParams.set('excludeTags', Array.from(excludedTags).join(','));
+                }
+
                 const response = await fetch(`/.netlify/functions/getVocab?${queryParams.toString()}`);
                 const data = await response.json();
+                
+                if (data.error) {
+                    console.error('API Error:', data.error);
+                    document.getElementById('quizDisplay').textContent = 'データの取得に失敗しました';
+                    return [];
+                }
+
                 quizData = data.results;
                 
-                // タグ選択UIの初期化
-                if (data.availableTags && !document.querySelector('#tagSelection').children.length) {
-                    initializeTagSelection(data.availableTags);
+                // 利用可能なタグを更新
+                if (data.availableTags) {
+                    updateAvailableTags(data.availableTags);
                 }
 
                 return data.results;
             } catch (error) {
                 console.error('Error fetching quiz data:', error);
+                document.getElementById('quizDisplay').textContent = 'データの取得に失敗しました';
                 return [];
             }
         }
 
-        function initializeTagSelection(tags) {
-            const tagSelection = document.getElementById('tagSelection');
+        function updateAvailableTags(tags) {
+            const datalist = document.getElementById('availableTags');
+            datalist.innerHTML = '';
             tags.forEach(tag => {
-                const tagChip = document.createElement('span');
-                tagChip.className = 'tag-chip';
-                tagChip.textContent = tag;
-                tagChip.onclick = (e) => toggleTag(tag, e.shiftKey);
-                tagSelection.appendChild(tagChip);
+                const option = document.createElement('option');
+                option.value = tag;
+                datalist.appendChild(option);
+                availableTags.add(tag);
             });
         }
 
-        function toggleTag(tag, isShiftPressed) {
-            if (isShiftPressed) {
-                if (excludedTags.has(tag)) {
-                    excludedTags.delete(tag);
-                } else {
-                    excludedTags.add(tag);
-                    includedTags.delete(tag);
-                }
-            } else {
-                if (includedTags.has(tag)) {
-                    includedTags.delete(tag);
-                } else {
-                    includedTags.add(tag);
-                    excludedTags.delete(tag);
-                }
+        function addTag(tag, isExclude) {
+            if (!tag || !availableTags.has(tag)) return;
+
+            const targetSet = isExclude ? excludedTags : includedTags;
+            const oppositeSet = isExclude ? includedTags : excludedTags;
+            const targetContainer = document.getElementById(isExclude ? 'excludedTags' : 'includedTags');
+            
+            // 反対側のセットから削除
+            oppositeSet.delete(tag);
+            document.getElementById(isExclude ? 'includedTags' : 'excludedTags')
+                .querySelectorAll('.tag').forEach(el => {
+                    if (el.dataset.tag === tag) el.remove();
+                });
+
+            // 新しいタグを追加
+            if (!targetSet.has(tag)) {
+                targetSet.add(tag);
+                const tagElement = document.createElement('span');
+                tagElement.className = `tag ${isExclude ? 'exclude-tag' : 'include-tag'}`;
+                tagElement.dataset.tag = tag;
+                tagElement.innerHTML = `${tag} <span class="tag-remove" onclick="removeTag('${tag}', ${isExclude})">×</span>`;
+                targetContainer.appendChild(tagElement);
+                
+                // タグ入力欄をクリア
+                document.getElementById(isExclude ? 'excludeTagInput' : 'includeTagInput').value = '';
+                
+                // データを再取得
+                fetchQuizData();
             }
-
-            updateTagDisplay();
-            fetchQuizData();
         }
 
-        function updateTagDisplay() {
-            document.querySelectorAll('.tag-chip').forEach(chip => {
-                chip.className = 'tag-chip';
-                if (includedTags.has(chip.textContent)) {
-                    chip.classList.add('selected');
-                } else if (excludedTags.has(chip.textContent)) {
-                    chip.classList.add('excluded');
-                }
-            });
+        function addIncludeTag() {
+            const input = document.getElementById('includeTagInput');
+            addTag(input.value, false);
+        }
+
+        function addExcludeTag() {
+            const input = document.getElementById('excludeTagInput');
+            addTag(input.value, true);
+        }
+
+        function removeTag(tag, isExclude) {
+            const targetSet = isExclude ? excludedTags : includedTags;
+            targetSet.delete(tag);
+            document.getElementById(isExclude ? 'excludedTags' : 'includedTags')
+                .querySelectorAll('.tag').forEach(el => {
+                    if (el.dataset.tag === tag) el.remove();
+                });
+            fetchQuizData();
         }
 
         function getRandomQuiz() {
@@ -170,15 +245,18 @@
         }
 
         async function startQuiz() {
-            await fetchQuizData();
+            const data = await fetchQuizData();
+            if (data.length === 0) {
+                document.getElementById('quizDisplay').textContent = '条件に一致するクイズデータがありません';
+                updateButtons('no-data');
+                return;
+            }
+
             currentQuiz = getRandomQuiz();
             if (currentQuiz) {
                 document.getElementById('quizDisplay').textContent = currentQuiz.content;
                 supplementShown = false;
                 updateButtons('quiz');
-            } else {
-                document.getElementById('quizDisplay').textContent = 'クイズデータがありません';
-                updateButtons('no-data');
             }
         }
 
@@ -207,6 +285,14 @@
 
         // 初期データの読み込み
         fetchQuizData();
+
+        // エンターキーでタグを追加
+        document.getElementById('includeTagInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addIncludeTag();
+        });
+        document.getElementById('excludeTagInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addExcludeTag();
+        });
     </script>
 </body>
 </html>
