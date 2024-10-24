@@ -2,112 +2,211 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>英単語クイズ</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雑学クイズ</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            max-width: 600px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-            background-color: #f7f7f7;
-        }
         .quiz-container {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
         }
         .quiz-display {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
             min-height: 100px;
-            font-size: 1.5rem;
-            margin: 1rem 0;
-            padding: 1rem;
-            border: 1px solid #e1e1e1;
-            border-radius: 4px;
+        }
+        .tag-filter {
+            margin: 20px 0;
+        }
+        .tag-selection {
             display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .tag-chip {
+            padding: 5px 10px;
+            background-color: #e0e0e0;
+            border-radius: 15px;
+            cursor: pointer;
+        }
+        .tag-chip.selected {
+            background-color: #2196f3;
+            color: white;
+        }
+        .tag-chip.excluded {
+            background-color: #f44336;
+            color: white;
+        }
+        .button-container {
+            margin-top: 20px;
         }
         button {
-            background-color: #2eaadc;
-            color: white;
+            margin: 5px;
+            padding: 10px 20px;
             border: none;
-            padding: 0.8rem 1.5rem;
-            font-size: 1rem;
-            border-radius: 4px;
+            border-radius: 5px;
+            background-color: #2196f3;
+            color: white;
             cursor: pointer;
-            width: 100%;
         }
-        button:hover {
-            background-color: #2591ba;
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
 <body>
     <div class="quiz-container">
-        <h1>英単語クイズ</h1>
+        <h1>雑学クイズ</h1>
+        
+        <div class="tag-filter">
+            <h3>タグフィルター</h3>
+            <p>クリック: 含める / Shift+クリック: 除外</p>
+            <div id="tagSelection" class="tag-selection"></div>
+        </div>
+
         <div id="quizDisplay" class="quiz-display">
             スタートボタンを押してください
         </div>
-        <button id="quizButton" onclick="handleQuiz()">スタート</button>
+
+        <div class="button-container">
+            <button id="startButton">スタート</button>
+            <button id="showSupplementButton" disabled>補足を表示</button>
+            <button id="showNotionButton" disabled>Notionで開く</button>
+            <button id="nextButton" disabled>次の問題</button>
+        </div>
     </div>
 
     <script>
-    let currentWord = null;
-    let isShowingJapanese = true;
-    let vocabularyData = [];
+        let quizData = [];
+        let currentQuiz = null;
+        let supplementShown = false;
+        const includedTags = new Set();
+        const excludedTags = new Set();
 
-    async function fetchVocabData() {
-        try {
-            const response = await fetch('/.netlify/functions/getVocab');
-            const data = await response.json();
-            return data.results || [];
-        } catch (error) {
-            console.error('Error:', error);
-            return [];
+        async function fetchQuizData() {
+            const queryParams = new URLSearchParams();
+            if (includedTags.size > 0) {
+                queryParams.set('includeTags', Array.from(includedTags).join(','));
+            }
+            if (excludedTags.size > 0) {
+                queryParams.set('excludeTags', Array.from(excludedTags).join(','));
+            }
+
+            try {
+                const response = await fetch(`/.netlify/functions/getVocab?${queryParams.toString()}`);
+                const data = await response.json();
+                quizData = data.results;
+                
+                // タグ選択UIの初期化
+                if (data.availableTags && !document.querySelector('#tagSelection').children.length) {
+                    initializeTagSelection(data.availableTags);
+                }
+
+                return data.results;
+            } catch (error) {
+                console.error('Error fetching quiz data:', error);
+                return [];
+            }
         }
-    }
 
-    function getRandomWord(words) {
-        return words[Math.floor(Math.random() * words.length)];
-    }
+        function initializeTagSelection(tags) {
+            const tagSelection = document.getElementById('tagSelection');
+            tags.forEach(tag => {
+                const tagChip = document.createElement('span');
+                tagChip.className = 'tag-chip';
+                tagChip.textContent = tag;
+                tagChip.onclick = (e) => toggleTag(tag, e.shiftKey);
+                tagSelection.appendChild(tagChip);
+            });
+        }
 
-    async function handleQuiz() {
-        const display = document.getElementById('quizDisplay');
-        const button = document.getElementById('quizButton');
-
-        try {
-            if (vocabularyData.length === 0) {
-                display.textContent = 'データを読み込み中...';
-                button.disabled = true;
-                vocabularyData = await fetchVocabData();
-                if (vocabularyData.length === 0) {
-                    display.textContent = 'データが見つかりません';
-                    button.disabled = false;
-                    return;
+        function toggleTag(tag, isShiftPressed) {
+            if (isShiftPressed) {
+                if (excludedTags.has(tag)) {
+                    excludedTags.delete(tag);
+                } else {
+                    excludedTags.add(tag);
+                    includedTags.delete(tag);
+                }
+            } else {
+                if (includedTags.has(tag)) {
+                    includedTags.delete(tag);
+                } else {
+                    includedTags.add(tag);
+                    excludedTags.delete(tag);
                 }
             }
 
-            if (!currentWord) {
-                currentWord = getRandomWord(vocabularyData);
-                display.textContent = currentWord.japanese; // 日本語訳を表示
-                button.textContent = '答えを見る';
-                isShowingJapanese = true;
-            } else if (isShowingJapanese) {
-                display.textContent = currentWord.english; // 英語を表示
-                button.textContent = '次の問題へ';
-                isShowingJapanese = false;
-            } else {
-                currentWord = null;
-                handleQuiz();
-            }
-            
-            button.disabled = false;
-        } catch (error) {
-            console.error('Error:', error);
-            display.textContent = 'エラーが発生しました';
-            button.disabled = false;
+            updateTagDisplay();
+            fetchQuizData();
         }
-    }
-</script>
+
+        function updateTagDisplay() {
+            document.querySelectorAll('.tag-chip').forEach(chip => {
+                chip.className = 'tag-chip';
+                if (includedTags.has(chip.textContent)) {
+                    chip.classList.add('selected');
+                } else if (excludedTags.has(chip.textContent)) {
+                    chip.classList.add('excluded');
+                }
+            });
+        }
+
+        function getRandomQuiz() {
+            if (quizData.length === 0) return null;
+            const randomIndex = Math.floor(Math.random() * quizData.length);
+            return quizData[randomIndex];
+        }
+
+        function updateButtons(state) {
+            document.getElementById('startButton').disabled = state === 'quiz';
+            document.getElementById('showSupplementButton').disabled = state !== 'quiz' || supplementShown;
+            document.getElementById('showNotionButton').disabled = state !== 'quiz';
+            document.getElementById('nextButton').disabled = state !== 'quiz';
+        }
+
+        async function startQuiz() {
+            await fetchQuizData();
+            currentQuiz = getRandomQuiz();
+            if (currentQuiz) {
+                document.getElementById('quizDisplay').textContent = currentQuiz.content;
+                supplementShown = false;
+                updateButtons('quiz');
+            } else {
+                document.getElementById('quizDisplay').textContent = 'クイズデータがありません';
+                updateButtons('no-data');
+            }
+        }
+
+        function showSupplement() {
+            if (currentQuiz) {
+                document.getElementById('quizDisplay').innerHTML = 
+                    `<div>${currentQuiz.content}</div>
+                     <hr>
+                     <div>${currentQuiz.supplement}</div>`;
+                supplementShown = true;
+                updateButtons('quiz');
+            }
+        }
+
+        function openInNotion() {
+            if (currentQuiz) {
+                window.open(currentQuiz.url, '_blank');
+            }
+        }
+
+        // イベントリスナーの設定
+        document.getElementById('startButton').onclick = startQuiz;
+        document.getElementById('showSupplementButton').onclick = showSupplement;
+        document.getElementById('showNotionButton').onclick = openInNotion;
+        document.getElementById('nextButton').onclick = startQuiz;
+
+        // 初期データの読み込み
+        fetchQuizData();
+    </script>
+</body>
+</html>
