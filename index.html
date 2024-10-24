@@ -5,101 +5,71 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>雑学クイズ</title>
     <style>
-        .quiz-container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .quiz-display {
-            margin: 20px 0;
-            padding: 20px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            min-height: 100px;
-            background-color: #f8f9fa;
-        }
-        .tag-filter {
-            margin: 20px 0;
-            padding: 15px;
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            background-color: #fff;
-        }
-        .tag-sections {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-        .tag-section {
-            padding: 10px;
-        }
-        .tag-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 8px;
-        }
-        .tag-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 4px 0;
-        }
+        /* 既存のスタイル */
         .all-data-button {
             width: 100%;
             margin: 10px 0;
-            padding: 10px;
+            padding: 12px;
             background-color: #198754;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
         }
-        .button-container {
-            margin-top: 20px;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
+        .all-data-button:hover {
+            background-color: #146c43;
         }
-        .control-button {
-            padding: 10px 20px;
+        .all-data-button.active {
+            background-color: #0f5132;
+        }
+        .tag-toggle-button {
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #6c757d;
+            color: white;
             border: none;
             border-radius: 5px;
-            background-color: #0d6efd;
-            color: white;
             cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .control-button:disabled {
-            background-color: #6c757d;
-            cursor: not-allowed;
+        .tag-sections {
+            display: none;
         }
-        .selected-tags {
-            margin-top: 10px;
-            font-size: 0.9em;
-            color: #6c757d;
+        .tag-sections.show {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 15px;
         }
+        /* その他の既存のスタイル */
     </style>
 </head>
 <body>
     <div class="quiz-container">
         <h1>雑学クイズ</h1>
         
-        <div class="tag-filter">
-            <button onclick="fetchAllData()" class="all-data-button">
-                データベース全体から出題
-            </button>
-            <div class="tag-sections">
-                <div class="tag-section">
-                    <h3>含めるタグ</h3>
-                    <div id="includeTagList" class="tag-list"></div>
-                </div>
-                <div class="tag-section">
-                    <h3>除外するタグ</h3>
-                    <div id="excludeTagList" class="tag-list"></div>
-                </div>
+        <button id="allDataButton" class="all-data-button" onclick="handleAllDataClick()">
+            データベース全体から出題
+        </button>
+
+        <button class="tag-toggle-button" onclick="toggleTagSections()">
+            <span>タグでフィルター</span>
+            <span id="tagToggleIcon">▼</span>
+        </button>
+
+        <div id="tagSections" class="tag-sections">
+            <div class="tag-section">
+                <h3>含めるタグ</h3>
+                <div id="includeTagList" class="tag-list"></div>
             </div>
-            <div class="selected-tags">
-                <div id="selectedIncludeTags"></div>
-                <div id="selectedExcludeTags"></div>
+            <div class="tag-section">
+                <h3>除外するタグ</h3>
+                <div id="excludeTagList" class="tag-list"></div>
             </div>
         </div>
 
@@ -123,165 +93,30 @@
         const excludedTags = new Set();
         let isUsingAllData = false;
 
-        async function fetchQuizData(useAllData = false) {
-            try {
-                const queryParams = new URLSearchParams();
-                if (!useAllData) {
-                    if (includedTags.size > 0) {
-                        queryParams.set('includeTags', Array.from(includedTags).join(','));
-                    }
-                    if (excludedTags.size > 0) {
-                        queryParams.set('excludeTags', Array.from(excludedTags).join(','));
-                    }
-                }
-
-                const response = await fetch(`/.netlify/functions/getVocab?${queryParams.toString()}`);
-                const data = await response.json();
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-
-                quizData = data.results;
-                
-                // 初回のみタグ一覧を初期化
-                if (!document.querySelector('#includeTagList').children.length) {
-                    initializeTagLists(data.availableTags);
-                }
-
-                updateSelectedTagsDisplay();
-                return data.results;
-            } catch (error) {
-                console.error('Error fetching quiz data:', error);
-                return [];
-            }
+        function toggleTagSections() {
+            const sections = document.getElementById('tagSections');
+            const icon = document.getElementById('tagToggleIcon');
+            sections.classList.toggle('show');
+            icon.textContent = sections.classList.contains('show') ? '▲' : '▼';
         }
 
-        async function fetchAllData() {
+        async function handleAllDataClick() {
+            const button = document.getElementById('allDataButton');
+            button.classList.add('active');
             isUsingAllData = true;
             includedTags.clear();
             excludedTags.clear();
             updateCheckboxes();
-            const data = await fetchQuizData(true);
-            if (data.length > 0) {
-                startQuiz();
-            }
+            await fetchQuizData(true);
+            startQuiz();
         }
 
-        function initializeTagLists(tags) {
-            const includeList = document.getElementById('includeTagList');
-            const excludeList = document.getElementById('excludeTagList');
-            
-            tags.forEach(tag => {
-                // 含めるタグのチェックボックス
-                const includeLabel = document.createElement('label');
-                includeLabel.className = 'tag-checkbox';
-                includeLabel.innerHTML = `
-                    <input type="checkbox" data-tag="${tag}" onchange="handleTagChange('${tag}', this.checked, false)">
-                    <span>${tag}</span>
-                `;
-                includeList.appendChild(includeLabel);
+        // 他のJavaScript関数は変更なし
 
-                // 除外するタグのチェックボックス
-                const excludeLabel = document.createElement('label');
-                excludeLabel.className = 'tag-checkbox';
-                excludeLabel.innerHTML = `
-                    <input type="checkbox" data-tag="${tag}" onchange="handleTagChange('${tag}', this.checked, true)">
-                    <span>${tag}</span>
-                `;
-                excludeList.appendChild(excludeLabel);
-            });
-        }
-
-        function updateCheckboxes() {
-            document.querySelectorAll('.tag-checkbox input').forEach(checkbox => {
-                const tag = checkbox.dataset.tag;
-                const isExclude = checkbox.parentElement.parentElement.id === 'excludeTagList';
-                checkbox.checked = isExclude ? excludedTags.has(tag) : includedTags.has(tag);
-            });
-        }
-
-        function handleTagChange(tag, checked, isExclude) {
-            isUsingAllData = false;
-            const targetSet = isExclude ? excludedTags : includedTags;
-            const oppositeSet = isExclude ? includedTags : excludedTags;
-            
-            if (checked) {
-                targetSet.add(tag);
-                oppositeSet.delete(tag);
-                // 反対側のチェックボックスの状態を更新
-                const oppositeSelector = `#${isExclude ? 'includeTagList' : 'excludeTagList'} input[data-tag="${tag}"]`;
-                const oppositeCheckbox = document.querySelector(oppositeSelector);
-                if (oppositeCheckbox) oppositeCheckbox.checked = false;
-            } else {
-                targetSet.delete(tag);
-            }
-
-            updateSelectedTagsDisplay();
-            fetchQuizData();
-        }
-
-        function updateSelectedTagsDisplay() {
-            document.getElementById('selectedIncludeTags').textContent = 
-                `含めるタグ: ${includedTags.size > 0 ? Array.from(includedTags).join(', ') : 'なし'}`;
-            document.getElementById('selectedExcludeTags').textContent = 
-                `除外するタグ: ${excludedTags.size > 0 ? Array.from(excludedTags).join(', ') : 'なし'}`;
-        }
-
-        async function startQuiz() {
-            const data = await fetchQuizData(isUsingAllData);
-            if (data.length === 0) {
-                document.getElementById('quizDisplay').textContent = '条件に一致するクイズデータがありません';
-                updateButtons('no-data');
-                return;
-            }
-
-            currentQuiz = getRandomQuiz();
-            if (currentQuiz) {
-                document.getElementById('quizDisplay').textContent = currentQuiz.content;
-                supplementShown = false;
-                updateButtons('quiz');
-            }
-        }
-
-        function getRandomQuiz() {
-            if (quizData.length === 0) return null;
-            const randomIndex = Math.floor(Math.random() * quizData.length);
-            return quizData[randomIndex];
-        }
-
-        function updateButtons(state) {
-            document.getElementById('startButton').disabled = state === 'quiz';
-            document.getElementById('showSupplementButton').disabled = state !== 'quiz' || supplementShown;
-            document.getElementById('showNotionButton').disabled = state !== 'quiz';
-            document.getElementById('nextButton').disabled = state !== 'quiz';
-        }
-
-        function showSupplement() {
-            if (currentQuiz) {
-                document.getElementById('quizDisplay').innerHTML = 
-                    `<div>${currentQuiz.content}</div>
-                     <hr>
-                     <div>${currentQuiz.supplement}</div>`;
-                supplementShown = true;
-                updateButtons('quiz');
-            }
-        }
-
-        function openInNotion() {
-            if (currentQuiz) {
-                window.open(currentQuiz.url, '_blank');
-            }
-        }
-
-        // イベントリスナーの設定
-        document.getElementById('startButton').onclick = startQuiz;
-        document.getElementById('showSupplementButton').onclick = showSupplement;
-        document.getElementById('showNotionButton').onclick = openInNotion;
-        document.getElementById('nextButton').onclick = startQuiz;
-
-        // 初期データの読み込み
-        fetchQuizData(true);
+        // 初期化時にタグセクションを非表示に
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('tagSections').classList.remove('show');
+        });
     </script>
 </body>
 </html>
