@@ -12,9 +12,17 @@ exports.handler = async function(event, context) {
             auth: process.env.NOTION_API_TOKEN
         });
 
+        // データベース情報を取得してタグ一覧を取得
+        const dbInfo = await notion.databases.retrieve({
+            database_id: process.env.DATABASE_ID
+        });
+
+        // タグのオプション一覧を取得
+        const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
+
         // クエリパラメータからフィルター条件を取得
         const { includeTags, excludeTags } = event.queryStringParameters || {};
-        let filter = {};
+        let filter = undefined; // デフォルトではフィルターなし
 
         if (includeTags || excludeTags) {
             const conditions = [];
@@ -43,16 +51,12 @@ exports.handler = async function(event, context) {
                 });
             }
 
-            filter = {
-                and: conditions
-            };
+            if (conditions.length > 0) {
+                filter = {
+                    and: conditions
+                };
+            }
         }
-
-        // 利用可能なタグの一覧を取得
-        const dbInfo = await notion.databases.retrieve({
-            database_id: process.env.DATABASE_ID
-        });
-        const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
 
         // データベースからデータを取得
         const response = await notion.databases.query({
@@ -61,13 +65,27 @@ exports.handler = async function(event, context) {
         });
 
         // データの形式を整形
-        const formattedData = response.results.map(page => ({
-            id: page.id,
-            url: page.url,
-            content: page.properties['内容']?.rich_text[0]?.plain_text || '',
-            supplement: page.properties['補足']?.rich_text[0]?.plain_text || '',
-            tags: page.properties['タグ']?.multi_select.map(tag => tag.name) || []
-        })).filter(item => item.content && item.supplement);
+        const formattedData = response.results.map(page => {
+            // デバッグ用のログ
+            console.log('Page properties:', {
+                name: page.properties['Aa名前'],
+                supplement: page.properties['補足'],
+                tags: page.properties['タグ']
+            });
+
+            return {
+                id: page.id,
+                url: page.url,
+                content: page.properties['Aa名前']?.title[0]?.plain_text || '',
+                supplement: page.properties['補足']?.rich_text[0]?.plain_text || '',
+                tags: page.properties['タグ']?.multi_select.map(tag => tag.name) || []
+            };
+        }).filter(item => item.content && item.supplement);
+
+        // デバッグ用のログ
+        console.log('Available tags:', availableTags);
+        console.log('Formatted data count:', formattedData.length);
+        console.log('First item sample:', formattedData[0]);
 
         return {
             statusCode: 200,
