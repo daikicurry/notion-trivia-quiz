@@ -8,7 +8,7 @@ exports.handler = async function(event, context) {
     };
 
     console.log('Function started');
-    console.log('Query parameters:', event.queryStringParameters);
+    console.log('Event:', JSON.stringify(event, null, 2));
 
     try {
         const notion = new Client({
@@ -16,20 +16,29 @@ exports.handler = async function(event, context) {
         });
 
         console.log('Notion client initialized');
+        console.log('Database ID:', process.env.DATABASE_ID);
 
-        // データベース情報を取得
+        // まずデータベースの情報を取得
         console.log('Retrieving database info...');
-        const dbInfo = await notion.databases.retrieve({
-            database_id: process.env.DATABASE_ID
-        });
-        console.log('Database info retrieved');
+        try {
+            const dbInfo = await notion.databases.retrieve({
+                database_id: process.env.DATABASE_ID
+            });
+            console.log('Database properties:', Object.keys(dbInfo.properties));
+            console.log('タグ property:', dbInfo.properties['タグ']);
+        } catch (dbError) {
+            console.error('Error retrieving database:', dbError);
+            throw dbError;
+        }
 
-        // クエリパラメータの処理
-        let filter = undefined;
+        // クエリパラメータの確認
         const { useAllData, includeTags, excludeTags } = event.queryStringParameters || {};
+        console.log('Query parameters:', { useAllData, includeTags, excludeTags });
 
-        // 全データ取得モードの場合はフィルターを適用しない
-        if (!useAllData && (includeTags || excludeTags)) {
+        let filter = undefined;
+
+        // フィルター条件の構築（全データモードでない場合のみ）
+        if (useAllData !== 'true' && (includeTags || excludeTags)) {
             const conditions = [];
             
             if (includeTags) {
@@ -65,53 +74,76 @@ exports.handler = async function(event, context) {
             }
         }
 
-        console.log('Using filter:', JSON.stringify(filter, null, 2));
+        console.log('Final filter:', JSON.stringify(filter, null, 2));
 
-        // クイズデータの取得
+        // データベースからデータを取得
         console.log('Querying database...');
-        const response = await notion.databases.query({
+        const queryParams = {
             database_id: process.env.DATABASE_ID,
-            filter: filter,
             page_size: 100
-        });
-        console.log('Raw results count:', response.results.length);
-
-        // データの整形
-        const formattedData = response.results
-            .map(page => {
-                try {
-                    return {
-                        id: page.id,
-                        url: page.url,
-                        content: page.properties['Aa名前'].title[0].plain_text,
-                        supplement: page.properties['補足'].rich_text[0].plain_text,
-                        tags: page.properties['タグ']?.multi_select?.map(tag => tag.name) || []
-                    };
-                } catch (error) {
-                    console.error('Error formatting page:', page.id, error);
-                    return null;
-                }
-            })
-            .filter(item => item && item.content && item.supplement);
-
-        console.log('Formatted data count:', formattedData.length);
-
-        const availableTags = dbInfo.properties['タグ'].multi_select.options.map(option => option.name);
-        console.log('Available tags:', availableTags);
-
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({
-                results: formattedData,
-                availableTags: availableTags,
-                debug: {
-                    totalResults: response.results.length,
-                    formattedResults: formattedData.length,
-                    usedFilter: filter
-                }
-            })
         };
+        if (filter) {
+            queryParams.filter = filter;
+        }
+
+        try {
+            const response = await notion.databases.query(queryParams);
+            console.log('Query response:', {
+                total: response.results.length,
+                sample: response.results[0] ? {
+                    id: response.results[0].id,
+                    properties: Object.keys(response.results[0].properties)
+                } : null
+            });
+
+            // データの整形
+            const formattedData = response.results
+                .map(page => {
+                    try {
+                        const formatted = {
+                            id: page.id,
+                            url: page.url,
+                            content: page.properties['Aa名前']?.title[0]?.plain_text,
+                            supplement: page.properties['補足']?.rich_text[0]?.plain_text,
+                            tags: page.properties['タグ']?.multi_select?.map(tag => tag.name) || []
+                        };
+                        console.log('Formatted page:', formatted);
+                        return formatted;
+                    } catch (error) {
+                        console.error('Error formatting page:', page.id, error);
+                        return null;
+                    }
+                })
+                .filter(item => item && item.content && item.supplement);
+
+            console.log('Final formatted data count:', formattedData.length);
+
+            // 利用可能なタグの取得
+            const availableTags = response.results.reduce((tags, page) => {
+                const pageTags = page.properties['タグ']?.multi_select?.map(tag => tag.name) || [];
+                pageTags.forEach(tag => tags.add(tag));
+                return tags;
+            }, new Set());
+
+            return {
+                statusCode: 200,
+                headers,
+                body: JSON.stringify({
+                    results: formattedData,
+                    availableTags: Array.from(availableTags),
+                    debug: {
+                        totalResults: response.results.length,
+                        formattedResults: formattedData.length,
+                        filter: filter,
+                        sampleTags: formattedData[0]?.tags || []
+                    }
+                })
+            };
+
+        } catch (queryError) {
+            console.error('Error querying database:', queryError);
+            throw queryError;
+        }
 
     } catch (error) {
         console.error("Error details:", error);
